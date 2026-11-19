@@ -1,59 +1,62 @@
 import SwiftUI
 import SwiftData
 import PhotosUI
-import UIKit
 
-@Observable //Enables SwiftUI to make changes to the values inside the class
-final class AddGoalView{
-    var name: String = ""
-    var priceText: String = ""
-    var savedText: String = ""
-    var optDescription: String = ""
-    var selectedImage: PhotosPickerItem?
-    var imageData: Data?
+struct AddGoalView: View{
+    @State private var viewModel = AddGoalViewModel()
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
     
-    //Validation
-    var price: Decimal? {Decimal(string: priceText, locale: .current)}
-    var ammountSaved: Decimal? {Decimal(string: savedText, locale: .current)}
-    
-    var isValid: Bool{
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && (price ?? 0) > 0
-    }
-    
-    //Image functions
-    func loadImage() async{
-        guard let item = selectedImage else{return}
-        if let data = try? await item.loadTransferable(type: Data.self){ //load the image and save as Data type
-            imageData = Self.downscaledJPEG(from: data)
-        }
-    }
-    
-    func removeImage(){
-        selectedImage = nil
-        imageData = nil
-    }
-    
-    //Scale down the images so they take less storage
-    private static func downscaledJPEG(from data: Data, maxDimension: CGFloat = 1200) -> Data? {
-            guard let image = UIImage(data: data) else { return nil }
-            let largest = max(image.size.width, image.size.height)
-            let scale = min(1, maxDimension / largest)
-            let newSize = CGSize(width: image.size.width * scale,
-                                 height: image.size.height * scale)
-            let resized = UIGraphicsImageRenderer(size: newSize).image { _ in
-                image.draw(in: CGRect(origin: .zero, size: newSize))
+    var body: some View{
+        NavigationStack{
+            Form{
+                Section("Goal"){
+                    TextField("Name (e.g. New car)", text: $viewModel.name)
+                    TextField("Price", text: $viewModel.priceText).keyboardType(.decimalPad)
+                    TextField("Saved so far (Optional)", text: $viewModel.savedText).keyboardType(.decimalPad)
+                }
+                Section("Image"){
+                    PhotosPicker(selection: $viewModel.selectedImage, matching: .images){
+                        Label(viewModel.selectedImage == nil ? "Choose a photo" : "Change photo", systemImage: "photo")
+                    }
+                }
+                
+                if let data = viewModel.imageData, let UIImage = UIImage(data: data) {
+                    Image(uiImage: UIImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 160)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .listRowInsets(EdgeInsets())
+                        
+                    Button("Remove photo", role: .destructive){
+                        viewModel.removeImage()
+                    }
+                }
             }
-            return resized.jpegData(compressionQuality: 0.8)
-    }
-    
-    func save(in context: ModelContext){
-        guard let price, isValid else {return}
-        let goal = Goal(name: name.trimmingCharacters(in: .whitespaces),
-                        targetAmount: price,
-                        imageData: imageData)
-        context.insert(goal)
-        if let saved = ammountSaved, saved > 0{
-            context.insert(Contribution(amount: saved, goal: goal))
+            .onChange(of: viewModel.selectedImage){
+                Task {await viewModel.loadImage()}
+            }
+            .navigationTitle("New goal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar{
+                ToolbarItem(placement: .cancellationAction){
+                    Button("Cancel"){dismiss()}
+                }
+                ToolbarItem(placement: .cancellationAction){
+                    Button("Save"){
+                        viewModel.save(in: context)
+                        dismiss()
+                    }
+                    .disabled(!viewModel.isValid)
+                }
+            }
         }
     }
+}
+
+#Preview {
+    AddGoalView()
+        .modelContainer(for: Goal.self, inMemory: true)
 }
