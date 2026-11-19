@@ -5,7 +5,7 @@ enum AppSettings{
 }
 
 extension Decimal{
-    var asCurency: String{
+    var asCurrency: String{
         formatted(.currency(code: AppSettings.currencyCode))
     }
 }
